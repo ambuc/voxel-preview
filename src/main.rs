@@ -11,7 +11,7 @@ static VOX_DIST: f32 = 1.0; // voxel distance
 static N: usize = 8;
 
 fn main() {
-    let mut window = Window::new("Kiss3d: cube");
+    let mut window = Window::new_with_size("Kiss3d: cube", 1000, 1000);
     let mut voxels: Vec<Vec<Vec<kiss3d::scene::SceneNode>>> = Vec::new();
 
     //         c          //      c
