@@ -6,3 +6,4 @@ authors = ["James Adam Buckland <james.adam.buckland@gmail.com>"]
 [dependencies]
 kiss3d = "0.12"
 nalgebra = "0.13"
+rosc = "~0.1"
