@@ -8,11 +8,17 @@ display](https://www.aliexpress.com/item/DIY-3D8-multicolor-mini-LED-light-displ
 
 # Roadmap
 [x] Render with `kiss3d`
-[ ] Write `rosc` sender loop
-[ ] Write `rosc` reciever loop
+[x] Write `rosc` sender loop
+[x] Write `rosc` reciever loop
 [ ] Render image continuously with osc input
 [ ] Sender loop generates patterns
 [ ] Launch both from command  line
 
 ## Example
 ![render](render.png)
+
+## OSC Schema
+```
+  #        port /px/x/y/z r   g   b
+  send_osc 1234 /px/0/2/4 0.0 0.5 1.0
+```
