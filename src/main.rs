@@ -1,91 +1,73 @@
-#![feature(slice_patterns)]
+#![feature(inclusive_range, inclusive_range_syntax)]
 #![feature(match_default_bindings)]
 #![feature(range_contains)]
-#![feature(inclusive_range, inclusive_range_syntax)]
+#![feature(slice_patterns)]
 
 extern crate kiss3d;
 extern crate mio;
 extern crate nalgebra as na;
 extern crate rosc;
 
-use kiss3d::camera::ArcBall;
-use kiss3d::light::Light;
-use kiss3d::window::Window;
-use kiss3d::scene::SceneNode;
-//use kiss3d::camera::Camera;
-use mio::net::UdpSocket;
-use mio::{Events, Poll, PollOpt, Ready, Token};
-use na::{Point3, Translation3, Vector3};
-use rosc::{OscMessage, OscPacket, OscType};
 use std::error::Error;
-//use std::f32::consts::PI;
 use std::time::Duration;
 
-static N: usize = 8;
-static ROT: f32 = 0.001; // amount to rotate by
-static VOX_WIDTH: f32 = 0.1; // voxel width
+use kiss3d::camera::ArcBall;
+use kiss3d::light::Light;
+use kiss3d::scene::SceneNode;
+use kiss3d::window::Window;
+use na::{Point3, Translation3, Vector3};
 
-const TOKEN: Token = Token(1);
+use mio::net::UdpSocket;
+use mio::{Events, Poll, PollOpt, Ready, Token};
+use rosc::{OscMessage, OscPacket, OscType};
+
+// kiss3d constants
+static WINDOW_W: u32 = 888; // arbitrary
+static WINDOW_H: u32 = 888;
+static CUBE_WIDTH: usize = 8; // this will probably always be 8, since it should be a good
+                              // simulation of a real 3d LED cube one could buy.
+static ROTATION_RAD: f32 = 0.001; // amount by which to rotate the camera yaw per frame
+static VOX_RADIUS: f32 = 0.1; // radius of a voxel 'sphere'. this needs to be small,
+                              // since kiss3d officially doesn't support transparency
+static EYE_OFFSET: f32 = 1.5; // arbitrary
+
+// mio constants
+static IP: &str = "127.0.0.1:1234"; // where 1234 is the default voxel-env port
+static EVENTS_CAP: usize = 128;
+static TOKEN: Token = Token(0);
+static POLL_TIMEOUT: u64 = 1; // mio polling is efficient enough to support this
 
 fn main() {
     run_sim().unwrap()
 }
 
+// creates the kiss3d scene, renders the voxel structure, and listens for UDP OSC updates on $IP
 fn run_sim() -> Result<(), Box<Error>> {
-    let socket = UdpSocket::bind(&"127.0.0.1:1234".parse()?)?;
+    let socket = UdpSocket::bind(&IP.parse()?)?;
     let poll = Poll::new()?;
     poll.register(&socket, TOKEN, Ready::readable(), PollOpt::edge())?;
-
-    let mut events = Events::with_capacity(128);
+    let mut events = Events::with_capacity(EVENTS_CAP);
     let mut buf = [0u8; rosc::decoder::MTU];
 
     let mut window = make_window();
-    let mut voxels: Vec<Vec<Vec<SceneNode>>> = Vec::new();
-
-    //let mut vox_colors: Vec<Vec<Vec<(f32, f32, f32)>>> = vec![vec![vec![(0.0, 0.0, 0.0); N]; N]; N];
-    //let mut vox_refs: Vec<Vec<Vec<Option<SceneNode>>>> = vec![vec![vec![None; N]; N]; N];
-
-    for i in 0..N {
-        let mut plane: Vec<Vec<SceneNode>> = Vec::new();
-        for j in 0..N {
-            let mut row: Vec<SceneNode> = Vec::new();
-            for k in 0..N {
-                let mut vox = window.add_sphere(VOX_WIDTH);
-                vox.set_color(0.0, 0.0, 0.0);
-                vox.append_translation(&Translation3::new(i as f32, j as f32, k as f32));
-                row.push(vox);
-            }
-            plane.push(row);
-        }
-        voxels.push(plane);
-    }
-
-    //cube
-    //for (i, plane) in vox_colors.iter().enumerate() {
-    //    for (j, line) in plane.iter().enumerate() {
-    //        for (k, &(r, g, b)) in line.iter().enumerate() {
-    //            let mut vox = window.add_sphere(VOX_WIDTH);
-    //            vox.set_color(r, g, b);
-    //            vox.append_translation(&Translation3::new(i as f32, j as f32, k as f32));
-    //            vox_refs[i][j][k] = Some(vox);
-    //        }
-    //    }
-    //}
-
+    let mut voxels = make_cube_in_window(&mut window); // initial blank slate
     let mut cam = make_camera();
 
     Ok(while window.render_with_camera(&mut cam) {
-        let curr = cam.yaw();
-        cam.set_yaw(curr + ROT);
-        poll.poll(&mut events, Some(Duration::from_millis(1)))?;
-        for _event in events.iter() {
+        {
+            // tick yaw
+            let curr = cam.yaw();
+            cam.set_yaw(curr + ROTATION_RAD);
+        }
+        poll.poll(&mut events, Some(Duration::from_millis(POLL_TIMEOUT)))?;
+        for _ in events.iter() {
             match socket.recv_from(&mut buf) {
                 Ok((size, _)) => match rosc::decoder::decode(&buf[..size]).unwrap() {
                     OscPacket::Message(OscMessage {
                         addr,
                         args: Some(args),
                     }) => {
-                        mutate(&mut voxels, addr, &args).unwrap();
+                        apply_instruction(&mut voxels, addr, &args).unwrap();
                     }
                     _ => (),
                 },
@@ -95,52 +77,90 @@ fn run_sim() -> Result<(), Box<Error>> {
     })
 }
 
-pub fn mutate(
+// utility function to accept [OscType::Float(r), OscType::Float(g), OscType::Float(b)]
+// and return Some((r,g,b)). because we can't 'unwrap' enum types.
+fn unwrap_args_as_rgb(args: &Vec<OscType>) -> Option<(f32, f32, f32)> {
+    match args.as_slice() {
+        [OscType::Float(r), OscType::Float(g), OscType::Float(b)] => Some((*r, *g, *b)),
+        _ => None,
+    }
+}
+
+// parses $args and applies the mutation to $voxels
+fn apply_instruction(
     voxels: &mut Vec<Vec<Vec<SceneNode>>>,
     addr: String,
     args: &Vec<OscType>,
 ) -> Result<(), Box<Error>> {
-    let (r, g, b): (f32, f32, f32) = match args.as_slice() {
-        [OscType::Float(r), OscType::Float(g), OscType::Float(b)] => (*r, *g, *b),
-        _ => return Ok(()),
+    let color_range = 0f32..=1f32; // 0..1 incl
+    let idx_range = 0usize..CUBE_WIDTH; // 0..8 excl
+
+    // make r g b
+    let (r, g, b): (f32, f32, f32) = match unwrap_args_as_rgb(args) {
+        Some(rgb) => rgb,
+        None => return Ok(()),
     };
-    let color_range = 0f32..=1f32;
-    let idx_range = 0usize..N;
-    match addr.split('/').skip(1).next() {
-        Some("px") => {
-            let coords = addr.split('/').skip(2).collect::<Vec<&str>>();
-            let x = coords[0].parse::<usize>()?;
-            let y = coords[1].parse::<usize>()?;
-            let z = coords[2].parse::<usize>()?;
-            if vec![x, y, z].iter().all(|&idx| idx_range.contains(idx))
-                && vec![r, g, b].iter().all(|&col| color_range.contains(col))
-            {
-                voxels[x][y][z].set_color(r, g, b);
-                //println!("{} {} {}\t{} {} {}", r, g, b, x, y, z);
-            }
-        }
-        _ => (),
+    // make x y z
+    let mut coords = addr.split('/').skip(1).map(|s| s.parse::<usize>());
+    let x = coords.next().unwrap()?;
+    let y = coords.next().unwrap()?;
+    let z = coords.next().unwrap()?;
+
+    // if xyz in 0..8 range (excl) and rgb in 0..1 range (incl)
+    if vec![x, y, z].iter().all(|&idx| idx_range.contains(idx))
+        && vec![r, g, b].iter().all(|&col| color_range.contains(col))
+    {
+        // update the voxel
+        voxels[x][y][z].set_color(r, g, b);
     }
     Ok(())
-
-    //voxels[0][0][0].set_color(1.0, 1.0, 1.0);
 }
 
+// creates a window in userland with default lighting
 pub fn make_window() -> Window {
-    let mut window = Window::new_with_size(&format!("{}x{}x{}", N, N, N), 888, 888);
+    let mut window = Window::new_with_size(
+        &format!("{}x{}x{}", CUBE_WIDTH, CUBE_WIDTH, CUBE_WIDTH),
+        WINDOW_W,
+        WINDOW_H,
+    );
     window.set_light(Light::StickToCamera);
     window
 }
 
+// creates a camera fixed on the center of the voxel structure,  with some
 fn make_camera() -> ArcBall {
-    let eye_dist: f32 = 1.5 * (N as f32);
-    let origin = Point3::new(N as f32 / 2.0, N as f32 / 2.0, N as f32 / 2.0);
-    let eye = Vector3::new(eye_dist, eye_dist, eye_dist);
-    ArcBall::new(origin + eye, origin)
+    let offset: f32 = EYE_OFFSET * (CUBE_WIDTH as f32);
+    let origin = Point3::new(
+        CUBE_WIDTH as f32 / 2.0,
+        CUBE_WIDTH as f32 / 2.0,
+        CUBE_WIDTH as f32 / 2.0,
+    );
+    ArcBall::new(origin + Vector3::new(offset, offset, offset), origin)
 }
 
-// phone flat on its back = [ 0, 0,-1]
-// phone tilted full fwd  = [ 1, 0, 0]
-// phone tilted full back = [-1, 0, 0]
-// phone tilted rightward = [ 0,-1, 0]
-// phone tilted leftwards = [ 0, 1, 0]
+// creates CUBE_WIDTH x CUBE_WIDTH x CUBE_WIDTH array of voxels attached to window,
+// and returns the 3d array of scenenodes for later mutation
+fn make_cube_in_window(window: &mut Window) -> Vec<Vec<Vec<SceneNode>>> {
+    let mut voxels = Vec::new();
+    for i in 0..CUBE_WIDTH {
+        voxels.push(Vec::new());
+        for j in 0..CUBE_WIDTH {
+            voxels[i].push(Vec::new());
+            for k in 0..CUBE_WIDTH {
+                let mut vox = window.add_sphere(VOX_RADIUS);
+
+                vox.append_translation(&Translation3::new(i as f32, j as f32, k as f32));
+
+                // default rainbow coloring
+                vox.set_color(
+                    (i as f32 / CUBE_WIDTH as f32),
+                    (j as f32 / CUBE_WIDTH as f32),
+                    (k as f32 / CUBE_WIDTH as f32),
+                );
+
+                voxels[i][j].push(vox);
+            }
+        }
+    }
+    voxels
+}
