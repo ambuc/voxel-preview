@@ -23,13 +23,9 @@ pub fn make_window() -> Window {
 
 // creates a camera fixed on the center of the voxel structure,  with some
 pub fn make_camera() -> ArcBall {
-    let offset: f32 = EYE_OFFSET * (CUBE_WIDTH as f32);
-    let origin = Point3::new(
-        1.0 * CUBE_WIDTH as f32 / 2.0,
-        1.0 * CUBE_WIDTH as f32 / 2.0,
-        -1.0 * CUBE_WIDTH as f32 / 2.0,
-    );
-    ArcBall::new(origin + Vector3::new(offset, offset, offset), origin)
+    let at: Point3<f32> = (((CUBE_WIDTH as f32) / 2.0) - 0.5) * Point3::new(1.0, 1.0, -1.0);
+    let eye: Point3<f32> = at + EYE_OFFSET * (CUBE_WIDTH as f32) * Vector3::new(1.0, 1.0, 1.0);
+    ArcBall::new(eye, at)
 }
 
 // creates CUBE_WIDTH x CUBE_WIDTH x CUBE_WIDTH array of voxels attached to window,

@@ -1,42 +1,43 @@
 use CUBE_WIDTH;
-use VOX_RADIUS;
 use kiss3d::scene::SceneNode;
-use kiss3d::window::Window;
 use na::Point3;
-use na::Translation3;
 use palette::LinSrgba;
+use palette::Blend;
 use std::error::Error;
 
 pub fn paint(
-    window: &mut Window,
     voxels: &mut Vec<Vec<Vec<SceneNode>>>,
     pt: Point3<i32>,
-    clr: LinSrgba<f32>,
+    clr_incoming: LinSrgba<f32>,
 ) -> Result<(), Box<Error>> {
-    // test xyz range for pixel and rgb range for intented color.
-    if vec![pt.x, pt.y, pt.z]
-        .iter()
-        .all(|&idx| (0..CUBE_WIDTH).contains(idx))
-    {
-        // update the voxel. to account for brightness we really just want to destroy and recreate it anew.
-        let (ix, iy, iz): (usize, usize, usize) = (pt.x as usize, pt.y as usize, pt.z as usize);
-        window.remove(&mut voxels[ix][iy][iz]);
+    // test xyz range for pixel
+    if !(0..CUBE_WIDTH).contains(pt.x) {
+        Err(From::from(format!(
+            "x coordinate {} not in range 0..{}",
+            pt.x, CUBE_WIDTH
+        )))
+    } else if !(0..CUBE_WIDTH).contains(pt.y) {
+        Err(From::from(format!(
+            "y coordinate {} not in range 0..{}",
+            pt.y, CUBE_WIDTH
+        )))
+    } else if !(0..CUBE_WIDTH).contains(pt.z) {
+        Err(From::from(format!(
+            "z coordinate {} not in range 0..{}",
+            pt.z, CUBE_WIDTH
+        )))
+    } else {
+        let vox = &mut voxels[pt.x as usize][pt.y as usize][pt.z as usize];
 
-        // kiss3d doesn't support opacity, so we just scale down the sphere a bit.
-        voxels[ix][iy][iz] = window.add_sphere(VOX_RADIUS * clr.alpha);
+        let old_color_point: Point3<f32> = *vox.data().get_object().data().color();
 
-        // there's some nonsense here. Because drawing system coordinates hang from a
-        // ceiling and are right-handed, where normal x/y/z coordinates rise from the
-        // origin plane and are right-handed, we end up having to flip and rotate them
-        // so that they match our intuition. TODO: represent this in a neat way with a
-        // nalgebra transformation.
-        voxels[ix][iy][iz].append_translation(&Translation3::new(
-            1.0 * (pt.x as f32),
-            1.0 * (pt.z as f32),
-            (-1.0) * (pt.y as f32),
-        ));
+        let clr_already =
+            LinSrgba::new(old_color_point.x, old_color_point.y, old_color_point.z, 1.0);
 
-        voxels[ix][iy][iz].set_color(clr.red, clr.green, clr.blue);
+        let clr = clr_already.overlay(clr_incoming);
+
+        vox.set_color(clr.red, clr.green, clr.blue);
+
+        Ok(())
     }
-    Ok(())
 }

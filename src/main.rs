@@ -30,7 +30,7 @@ use std::time::Duration;
 // kiss3d constants
 static WINDOW_W: u32 = 888; // arbitrary
 static WINDOW_H: u32 = 888;
-static ROTATION_RAD: f32 = 0.001; // amount by which to rotate the camera yaw per frame
+static ROTATION_RAD: f32 = 0.000; // amount by which to rotate the camera yaw per frame
                                   //static ROTATION_RAD: f32 = 0.0; // amount by which to rotate the camera yaw per frame
 static CUBE_WIDTH: i32 = 8; // this will probably always be 8, since it should be a good
                             // simulation of a real 3d LED cube one could buy.
@@ -86,7 +86,10 @@ fn main() {
                                 }
                             };
                         for cell in shape {
-                            let _ = paint::paint(&mut window, &mut voxels, cell, shader(cell));
+                            match paint::paint(&mut voxels, cell, shader(cell)) {
+                                Ok(()) => (),
+                                Err(e) => println!("{:?}", e),
+                            }
                         }
                     }
                     Ok(msg) => println!("Recieved other message: {:?}", msg),
