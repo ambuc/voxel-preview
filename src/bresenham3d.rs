@@ -1,10 +1,12 @@
-// adapted from https://gist.github.com/yamamushi/5823518.
-pub fn line((x1, y1, z1): (i32, i32, i32), (x2, y2, z2): (i32, i32, i32)) -> Vec<(i32, i32, i32)> {
-    let mut voxels: Vec<(i32, i32, i32)> = vec![];
+use na::Point3;
 
-    let dx: i32 = x2 - x1;
-    let dy: i32 = y2 - y1;
-    let dz: i32 = z2 - z1;
+// adapted from https://gist.github.com/yamamushi/5823518.
+pub fn line(p: Point3<i32>, q: Point3<i32>) -> Vec<Point3<i32>> {
+    let mut voxels: Vec<Point3<i32>> = vec![];
+
+    let dx: i32 = q.x - p.x;
+    let dy: i32 = q.y - p.y;
+    let dz: i32 = q.z - p.z;
 
     let l: i32 = dx.abs();
     let m: i32 = dy.abs();
@@ -21,15 +23,15 @@ pub fn line((x1, y1, z1): (i32, i32, i32), (x2, y2, z2): (i32, i32, i32)) -> Vec
     let mut err_1: i32;
     let mut err_2: i32;
 
-    let mut curr_x: i32 = x1;
-    let mut curr_y: i32 = y1;
-    let mut curr_z: i32 = z1;
+    let mut curr_x: i32 = p.x;
+    let mut curr_y: i32 = p.y;
+    let mut curr_z: i32 = p.z;
 
     if (l >= m) && (l >= n) {
         err_1 = dy2 - l;
         err_2 = dz2 - l;
         for _ in 0..l {
-            voxels.push((curr_x, curr_y, curr_z));
+            voxels.push(Point3::<i32>::new(curr_x, curr_y, curr_z));
             if err_1 > 0 {
                 curr_y += y_inc;
                 err_1 -= dx2;
@@ -46,7 +48,7 @@ pub fn line((x1, y1, z1): (i32, i32, i32), (x2, y2, z2): (i32, i32, i32)) -> Vec
         err_1 = dx2 - m;
         err_2 = dz2 - m;
         for _ in 0..m {
-            voxels.push((curr_x, curr_y, curr_z));
+            voxels.push(Point3::<i32>::new(curr_x, curr_y, curr_z));
             if err_1 > 0 {
                 curr_x += x_inc;
                 err_1 -= dy2;
@@ -63,7 +65,7 @@ pub fn line((x1, y1, z1): (i32, i32, i32), (x2, y2, z2): (i32, i32, i32)) -> Vec
         err_1 = dy2 - n;
         err_2 = dx2 - n;
         for _ in 0..n {
-            voxels.push((curr_x, curr_y, curr_z));
+            voxels.push(Point3::<i32>::new(curr_x, curr_y, curr_z));
             if err_1 > 0 {
                 curr_y += y_inc;
                 err_1 -= dz2;
@@ -78,7 +80,7 @@ pub fn line((x1, y1, z1): (i32, i32, i32), (x2, y2, z2): (i32, i32, i32)) -> Vec
         }
     }
 
-    voxels.push((curr_x, curr_y, curr_z));
+    voxels.push(Point3::<i32>::new(curr_x, curr_y, curr_z));
 
     voxels
 }
